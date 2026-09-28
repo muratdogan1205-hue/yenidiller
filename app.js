@@ -359,7 +359,16 @@ function showScreen(id) {
 
 function goHome() {
     playClickSound();
-    goToMainMenu();
+    const currentScreen = document.querySelector('.screen.active');
+    const currentId = currentScreen ? currentScreen.id : '';
+
+    if (currentId === 'stage-dashboard') {
+        goToMainMenu();
+    } else if (currentCategory) {
+        showScreen('stage-dashboard');
+    } else {
+        goToMainMenu();
+    }
 }
 
 function goToMainMenu() {
@@ -687,17 +696,28 @@ function createLearnCard(item) {
 
 
 // --- OYUN 1: KART EŞLEŞTİRME ---
+let flippedCards = [];
+let matchedPairs = 0;
+let memoryTotalPairs = 6;
+let isMemoryProcessing = false;
+
+function updateMemoryProgressDisplay() {
+    const badge = document.getElementById('memory-progress');
+    if (badge) {
+        badge.textContent = `⭐ Eşleşen: ${matchedPairs} / ${memoryTotalPairs} Çift`;
+    }
+}
 
 function startMemoryGame() {
     playClickSound();
     lastGameMode = 'memory';
     showScreen('game-memory');
     resetGameStars();
+    isMemoryProcessing = false;
 
-    // Dil adını güncelle
-    const langNames = { arabic: 'Arapça', english: 'İngilizce' };
+    // Başlığı güncelle
     const subtitle = document.getElementById('memory-subtitle');
-    if (subtitle) subtitle.textContent = `Resmi ${langNames[selectedLanguage]} ismiyle eşleştir!`;
+    if (subtitle) subtitle.textContent = 'Aynı resimleri bul ve eşleştir! 🎴';
 
     const grid = document.getElementById('memory-grid');
     grid.innerHTML = '';
@@ -706,14 +726,29 @@ function startMemoryGame() {
 
     // O anki kelimelerden rastgele 6 kelime seç
     let pool = [...currentStageWords];
-    let selected = pool.sort(() => 0.5 - Math.random()).slice(0, 6);
+    if (pool.length === 0 && activeWords && activeWords.length > 0) {
+        pool = [...activeWords];
+    }
+    const count = Math.min(6, pool.length);
+    let selected = pool.sort(() => 0.5 - Math.random()).slice(0, count);
     memoryTotalPairs = selected.length;
+    updateMemoryProgressDisplay();
 
     let deck = [];
     selected.forEach(item => {
-        deck.push({ id: item.ar, type: 'emoji', content: `<div style="width: 100%; height: 100%; padding: 10px; box-sizing: border-box;">${renderImageElement(item)}</div>`, data: item });
         const textClass = selectedLanguage === 'arabic' ? 'arabic-text' : 'foreign-text';
-        deck.push({ id: item.ar, type: 'text', content: `<div class="${textClass}">${item.ar}</div><div style="font-size:0.6em">${item.ok}</div>`, data: item });
+        const cardContent = `
+            <div class="memory-card-inner">
+                <div class="memory-card-img-wrap">
+                    ${renderImageElement(item)}
+                </div>
+                <div class="memory-card-label ${textClass}">${item.ar}</div>
+            </div>
+        `;
+
+        // İkisi de aynı resmi/görseli içeren 2 kart oluştur (Eşleştirme Çifti)
+        deck.push({ id: item.ar, type: 'visual', content: cardContent, data: item });
+        deck.push({ id: item.ar, type: 'visual', content: cardContent, data: item });
     });
 
     deck.sort(() => 0.5 - Math.random());
@@ -721,23 +756,40 @@ function startMemoryGame() {
     deck.forEach(cardData => {
         const card = document.createElement('div');
         card.className = 'card';
+        // Ön yüz: Açık kart içeriği (Kelime/Resim)
+        // Arka yüz: Kapalı soru işareti
         card.innerHTML = `
-            <div class="front">❓</div>
-            <div class="back">${cardData.content}</div>
+            <div class="front">${cardData.content}</div>
+            <div class="back">❓</div>
         `;
         card.onclick = () => flipCard(card, cardData);
         grid.appendChild(card);
     });
+
+    if (window.twemoji) {
+        twemoji.parse(grid, {
+            folder: 'svg',
+            ext: '.svg'
+        });
+    }
 }
 
 function flipCard(card, cardData) {
-    if (flippedCards.length >= 2 || card.classList.contains('flipped') || card.classList.contains('matched')) return;
+    if (isMemoryProcessing) return;
+    if (card.classList.contains('flipped') || card.classList.contains('matched')) return;
+    if (flippedCards.length >= 2) return;
 
     playClickSound();
     card.classList.add('flipped');
     flippedCards.push({ el: card, data: cardData });
 
+    // Kelimenin sesini oku
+    if (cardData.data && cardData.data.ar) {
+        speakWord(cardData.data.ar);
+    }
+
     if (flippedCards.length === 2) {
+        isMemoryProcessing = true;
         checkMemoryMatch();
     }
 }
@@ -750,29 +802,44 @@ function checkMemoryMatch() {
             c1.el.classList.add('matched');
             c2.el.classList.add('matched');
             playCorrectSound();
-            showFeedback("Doğru! 🎉");
+            showFeedback("Doğru Eşleşme! 🎉");
             addStar(1);
-            if (c1.data.type === 'text') speakWord(c1.data.data.ar);
-            else speakWord(c2.data.data.ar);
-        }, 500);
-        matchedPairs++;
+            matchedPairs++;
+            updateMemoryProgressDisplay();
 
-        // Oyun bitti mi?
-        if (matchedPairs === memoryTotalPairs) {
-            setTimeout(() => showGameComplete(), 1500);
-        }
+            flippedCards = [];
+            isMemoryProcessing = false;
+
+            // Oyun bitti mi?
+            if (matchedPairs >= memoryTotalPairs) {
+                setTimeout(() => showGameComplete(), 1000);
+            }
+        }, 600);
     } else {
         playWrongSound();
         setTimeout(() => {
             c1.el.classList.remove('flipped');
             c2.el.classList.remove('flipped');
+            flippedCards = [];
+            isMemoryProcessing = false;
         }, 1000);
     }
-    flippedCards = [];
 }
 
 
 // --- OYUN 2: DİNLE VE BUL ---
+let listeningCorrectCount = 0;
+let listeningTotalQuestions = 5;
+let currentQuestionItem = null;
+let isListeningProcessing = false;
+
+function updateListeningProgressDisplay() {
+    const badge = document.getElementById('listening-progress');
+    if (badge) {
+        const currentQ = Math.min(listeningCorrectCount + 1, listeningTotalQuestions);
+        badge.textContent = `⭐ Soru: ${currentQ} / ${listeningTotalQuestions}`;
+    }
+}
 
 function startListeningGame() {
     playClickSound();
@@ -780,16 +847,33 @@ function startListeningGame() {
     showScreen('game-listening');
     resetGameStars();
     listeningCorrectCount = 0;
+    isListeningProcessing = false;
+
+    let pool = [...currentStageWords];
+    if (pool.length === 0 && activeWords && activeWords.length > 0) {
+        pool = [...activeWords];
+    }
+    listeningTotalQuestions = Math.min(5, pool.length > 0 ? pool.length : 5);
+    updateListeningProgressDisplay();
     nextListeningQuestion();
 }
 
 function nextListeningQuestion() {
-    // 3 seçenek sun
+    isListeningProcessing = false;
     let pool = [...currentStageWords];
+    if (pool.length === 0 && activeWords && activeWords.length > 0) {
+        pool = [...activeWords];
+    }
+
+    // 3 seçenek sun
     let options = pool.sort(() => 0.5 - Math.random()).slice(0, 3);
-    let isAnswered = false; // Add flag to prevent multiple clicks
+    if (options.length < 3 && activeWords && activeWords.length >= 3) {
+        const extra = activeWords.filter(w => !options.some(o => o.ar === w.ar));
+        options = options.concat(extra.slice(0, 3 - options.length));
+    }
 
     currentQuestionItem = options[Math.floor(Math.random() * options.length)];
+    updateListeningProgressDisplay();
 
     const questionPrompt = currentCategory === 'phrases' ? 'Bu ifade hangisi?' : 'Bu ne?';
     const targetSize = currentQuestionItem.ar.length > 12 ? '2.2rem' : '3rem';
@@ -797,16 +881,16 @@ function nextListeningQuestion() {
 
     const bubble = document.getElementById('listening-text');
     bubble.innerHTML = `
-        <div>${questionPrompt}</div>
+        <div style="font-size: 1.3rem; color: #555;">${questionPrompt}</div>
         <div class="target-text ${selectedLanguage === 'arabic' ? 'arabic-text' : ''}" 
              onclick="speakWord('${escapedAr}')" 
-             style="color: #0288D1; font-size: ${targetSize}; margin-top:10px; cursor: pointer; user-select: none;">
+             style="color: #0288D1; font-size: ${targetSize}; margin: 8px 0; cursor: pointer; user-select: none;">
              ${currentQuestionItem.ar}
         </div>
-        <div style="font-size:1rem; color:#666;">(Ses için tıkla)</div>
+        <div style="font-size: 0.95rem; color: #777;">(Ses için tıkla 🔊)</div>
     `;
 
-    setTimeout(() => speakWord(currentQuestionItem.ar), 500);
+    setTimeout(() => speakWord(currentQuestionItem.ar), 400);
 
     const container = document.getElementById('listening-options');
     container.innerHTML = '';
@@ -816,28 +900,43 @@ function nextListeningQuestion() {
         el.className = 'animal-option';
         el.innerHTML = renderImageElement(opt);
         el.onclick = () => {
-            if (isAnswered) return; // Block if already answered
+            if (isListeningProcessing) return;
 
             if (opt.ar === currentQuestionItem.ar) {
-                isAnswered = true; // Set flag
+                isListeningProcessing = true;
+                el.classList.add('correct-choice');
                 playCorrectSound();
                 showFeedback(`Aferin! 👍\n(${currentQuestionItem.tr})`);
                 addStar(1);
                 listeningCorrectCount++;
+                updateListeningProgressDisplay();
 
                 if (listeningCorrectCount >= listeningTotalQuestions) {
-                    setTimeout(() => showGameComplete(), 1500);
+                    setTimeout(() => {
+                        isListeningProcessing = false;
+                        showGameComplete();
+                    }, 1200);
                 } else {
-                    setTimeout(nextListeningQuestion, 1500);
+                    setTimeout(() => {
+                        nextListeningQuestion();
+                    }, 1200);
                 }
             } else {
                 playWrongSound();
-                el.style.transform = "translateX(10px)";
-                setTimeout(() => el.style.transform = "none", 200);
+                el.classList.add('shake');
+                setTimeout(() => el.classList.remove('shake'), 400);
+                showFeedback("Tekrar dene! 😊");
             }
         };
         container.appendChild(el);
     });
+
+    if (window.twemoji) {
+        twemoji.parse(container, {
+            folder: 'svg',
+            ext: '.svg'
+        });
+    }
 }
 
 
@@ -846,9 +945,24 @@ let bouncingObjects = [];
 let balloonTimerInterval = null;
 let balloonTime = 0;
 let balloonCorrectCount = 0;
+let balloonTotalTargets = 5;
+let targetBalloonItem = null;
 let activeBalloonWords = [];
 let rafId = null;
-let currentBalloonTarget = null;
+let isBalloonProcessing = false;
+
+function updateBalloonProgressDisplay() {
+    const badge = document.getElementById('balloon-progress');
+    if (badge) {
+        badge.textContent = `⭐ Hedef: ${balloonCorrectCount} / ${balloonTotalTargets} Yakalandı`;
+    }
+}
+
+function pronounceBalloonTarget() {
+    if (!targetBalloonItem) return;
+    playClickSound();
+    speakWord(targetBalloonItem.ar);
+}
 
 function startBalloonGame() {
     playClickSound();
@@ -856,14 +970,21 @@ function startBalloonGame() {
     showScreen('game-colors');
     resetGameStars();
     balloonCorrectCount = 0;
+    balloonTotalTargets = 5;
+    isBalloonProcessing = false;
+    updateBalloonProgressDisplay();
 
     // Önceki nesneleri temizle
     bouncingObjects.forEach(obj => { if (obj && obj.element) obj.element.remove(); });
     bouncingObjects = [];
 
     // Kelime havuzunu sınırla (Max 8 kelime)
-    const poolSize = Math.min(8, currentStageWords.length);
-    activeBalloonWords = currentStageWords.slice(0, poolSize);
+    let pool = [...currentStageWords];
+    if (pool.length === 0 && activeWords && activeWords.length > 0) {
+        pool = [...activeWords];
+    }
+    const poolSize = Math.min(8, pool.length);
+    activeBalloonWords = pool.slice(0, poolSize);
 
     // Seçilen kelimelerden spawn et
     activeBalloonWords.forEach(word => {
@@ -880,14 +1001,14 @@ function startBalloonGame() {
     const timerDisplay = document.getElementById('balloon-timer');
     if (timerDisplay) {
         timerDisplay.style.display = 'block';
-        timerDisplay.textContent = `Süre: ${balloonTime}`;
+        timerDisplay.textContent = `Süre: ${balloonTime} sn`;
     }
 
     if (balloonTimerInterval) clearInterval(balloonTimerInterval);
     balloonTimerInterval = setInterval(() => {
         balloonTime++;
         if (timerDisplay) {
-            timerDisplay.textContent = `Süre: ${balloonTime}`;
+            timerDisplay.textContent = `Süre: ${balloonTime} sn`;
         }
     }, 1000);
 
@@ -897,6 +1018,7 @@ function startBalloonGame() {
 }
 
 function stopBalloonGame() {
+    isBalloonProcessing = false;
     if (rafId) {
         cancelAnimationFrame(rafId);
         rafId = null;
@@ -918,9 +1040,10 @@ function stopBalloonGame() {
 }
 
 function setNewBalloonTarget() {
-    // Sadece aktif (ekranda olan) balonlardan hedef seç
-    // bouncingObjects boşsa hata vermesin diye kontrol ekle
     if (bouncingObjects.length === 0) {
+        if (balloonCorrectCount >= balloonTotalTargets) {
+            showGameComplete();
+        }
         return;
     }
 
@@ -931,14 +1054,26 @@ function setNewBalloonTarget() {
     const targetDisplay = document.getElementById('color-target-display');
     const targetTextClass = selectedLanguage === 'arabic' ? 'arabic-text' : 'foreign-text';
     targetDisplay.innerHTML = `
-        <div style="width: 100px; height: 100px; margin: 0 auto 5px auto;">${renderImageElement(targetBalloonItem)}</div>
+        <div style="width: 75px; height: 75px; margin: 0 auto 4px auto; display: flex; align-items: center; justify-content: center;">
+            ${renderImageElement(targetBalloonItem)}
+        </div>
         <div style="text-align: center;">
             Hedef: <span class="${targetTextClass}" style="font-weight:bold; color:#0288D1; font-size:1.6rem;">${targetBalloonItem.ar}</span> 
-            <br><span style="font-size: 0.9rem; color: #555;">(${targetBalloonItem.ok})</span>
+            <span style="font-size: 1.2rem; margin-left: 6px;">🔊</span>
+            <br><span style="font-size: 0.95rem; color: #555;">(${targetBalloonItem.ok})</span>
         </div>
     `;
 
-    speakWord(targetBalloonItem.ar);
+    if (window.twemoji) {
+        twemoji.parse(targetDisplay, {
+            folder: 'svg',
+            ext: '.svg'
+        });
+    }
+
+    setTimeout(() => {
+        speakWord(targetBalloonItem.ar);
+    }, 200);
 }
 
 // --- ÇOK DİLLİ SES SENTEZİ ---
@@ -978,36 +1113,69 @@ function spawnBouncingObject(wordItem) {
     const container = document.getElementById('game-colors');
     const el = document.createElement('div');
     el.className = 'bouncing-object';
-    el.style.width = '100px';
-    el.style.height = '100px';
+    el.style.width = '95px';
+    el.style.height = '95px';
     el.innerHTML = renderImageElement(wordItem);
 
-    // Rastgele başlangıç pozisyonu ve hız
+    const maxX = Math.max(100, window.innerWidth - 110);
+    const maxY = Math.max(100, window.innerHeight - 130);
+
     const obj = {
         element: el,
         word: wordItem,
-        x: Math.random() * (window.innerWidth - 100),
-        y: Math.random() * (window.innerHeight - 100),
-        vx: (Math.random() - 0.5) * 2 + (Math.random() < 0.5 ? -1 : 1),
-        vy: (Math.random() - 0.5) * 2 + (Math.random() < 0.5 ? -1 : 1)
+        x: Math.random() * maxX,
+        y: 100 + Math.random() * (maxY - 100),
+        vx: (Math.random() - 0.5) * 2 + (Math.random() < 0.5 ? -1.2 : 1.2),
+        vy: (Math.random() - 0.5) * 2 + (Math.random() < 0.5 ? -1.2 : 1.2)
     };
 
-    el.onclick = () => handleBouncingClick(obj);
+    const triggerClick = (e) => {
+        if (e) {
+            try {
+                if (e.cancelable) e.preventDefault();
+                e.stopPropagation();
+            } catch (err) {}
+        }
+        handleBouncingClick(obj);
+    };
+
+    el.addEventListener('pointerdown', (e) => {
+        if (e.button === 0 || e.pointerType === 'touch') {
+            triggerClick(e);
+        }
+    });
+
+    el.addEventListener('click', (e) => {
+        triggerClick(e);
+    });
+
     container.appendChild(el);
     bouncingObjects.push(obj);
 
     // İlk pozisyonu ayarla
     el.style.left = obj.x + 'px';
     el.style.top = obj.y + 'px';
+
+    if (window.twemoji) {
+        twemoji.parse(el, {
+            folder: 'svg',
+            ext: '.svg'
+        });
+    }
 }
 
 function handleBouncingClick(obj) {
+    if (isBalloonProcessing) return;
+    if (!targetBalloonItem) return;
+
     if (obj.word.ar === targetBalloonItem.ar) {
+        isBalloonProcessing = true;
         playCorrectSound();
         obj.element.classList.add('pop-anim');
         showFeedback("Yakaladın! ✨");
         addStar(1);
         balloonCorrectCount++;
+        updateBalloonProgressDisplay();
 
         setTimeout(() => {
             const index = bouncingObjects.indexOf(obj);
@@ -1018,17 +1186,23 @@ function handleBouncingClick(obj) {
         }, 300);
 
         if (balloonCorrectCount >= balloonTotalTargets) {
-            setTimeout(() => showGameComplete(), 1500);
+            setTimeout(() => {
+                isBalloonProcessing = false;
+                showGameComplete();
+            }, 1200);
         } else {
-            setTimeout(() => setNewBalloonTarget(), 1000);
+            setTimeout(() => {
+                setNewBalloonTarget();
+                isBalloonProcessing = false;
+            }, 900);
         }
     } else {
         playWrongSound();
-        // Yanlış nesne - titret
-        obj.element.style.opacity = '0.5';
+        obj.element.classList.add('shake');
         setTimeout(() => {
-            obj.element.style.opacity = '1';
-        }, 200);
+            obj.element.classList.remove('shake');
+        }, 400);
+        showFeedback("Farklı bir kelime! 😊");
     }
 }
 

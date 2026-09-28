@@ -145,8 +145,9 @@
 
     <!-- EKRAN 2: HAFIZA OYUNU -->
     <div id="game-memory" class="screen">
+        <div class="memory-progress-badge" id="memory-progress">⭐ Eşleşen: 0 / 6 Çift</div>
         <h1>Eşleştirme Kartları 🃏</h1>
-        <p style="margin-bottom: 20px; font-size: 1.2rem;" id="memory-subtitle">Resmi ismiyle eşleştir!</p>
+        <p style="margin-bottom: 20px; font-size: 1.2rem;" id="memory-subtitle">Aynı resimleri bul ve eşleştir! 🎴</p>
         <div class="grid-container" id="memory-grid">
             <!-- Kartlar JS ile gelecek -->
         </div>
@@ -154,6 +155,7 @@
 
     <!-- EKRAN 3: DİNLEME OYUNU -->
     <div id="game-listening" class="screen">
+        <div class="listening-progress-badge" id="listening-progress">⭐ Soru: 1 / 5</div>
         <div class="speech-bubble" id="listening-text">
             Ben kimim?<br>
             <span class="arabic-text" style="color: #0288D1; font-size: 2.5rem;">???</span>
@@ -165,8 +167,11 @@
 
     <!-- EKRAN 4: KELİME AVCISI OYUNU -->
     <div id="game-colors" class="screen">
-        <div class="balloon-timer" id="balloon-timer" style="display: none;">Süre: 0</div>
-        <div class="target-color-display" id="color-target-display">
+        <div class="balloon-hud-top">
+            <div class="balloon-progress-badge" id="balloon-progress">⭐ Hedef: 0 / 5 Yakalandı</div>
+            <div class="balloon-timer" id="balloon-timer" style="display: none;">Süre: 0</div>
+        </div>
+        <div class="target-color-display" id="color-target-display" onclick="pronounceBalloonTarget()" style="cursor: pointer;">
             Hedef yükleniyor...
         </div>
         <!-- Balonlar JS ile uçacak -->
